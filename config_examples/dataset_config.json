@@ -1,17 +1,20 @@
 {
-    "time_masks": [
-        [0.1,0.9]
-    ],
-    "filter_packet_sizes": [
-        128
-    ],
-    "dim_process": 1,
-    "history_window_size": 20,
-    "dataset_size_max": 10000,
-    "split_ratios": [
-        0.7,
-        0.15,
-        0.15
-    ],
-    "dtime_max" : 20
+    "s63" : {
+        "time_masks": [
+            [0.6,0.9]
+        ],
+        "filter_packet_sizes": [],
+        "dim_process": 1,
+        "window_config": {
+            "type": "packet",
+            "size": 10
+        },
+        "dataset_size_max": 20000,
+        "split_ratios": [
+            0.8,
+            0.1,
+            0.1
+        ],
+        "dtime_max" : 10000
+    }
 }
