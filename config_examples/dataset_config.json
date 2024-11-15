@@ -1,13 +1,14 @@
 {
     "s63" : {
         "time_masks": [
-            [0.6,0.9]
+            [0.7,0.9]
         ],
         "filter_packet_sizes": [],
         "dim_process": 1,
         "window_config": {
-            "type": "packet",
-            "size": 10
+            "type": "event",
+            "size": 40,
+            "max_num_packet_types": 10
         },
         "dataset_size_max": 20000,
         "split_ratios": [
