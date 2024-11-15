@@ -126,8 +126,9 @@ Then the directory structure should look like:
 
 Now you can create a training dataset by executing the script:
 ```shell
-python main.py -t plot_link_data -f -s data/s9_results -c config/dataset_config.json -g s9 -n test0
-python main.py -t create_training_dataset -s data/s9_results -c config/dataset_config.json -g s9 -n test0
+python main.py -t plot_scheduling_data -f -s data/s63_results -c config/dataset_config.json -g s63 -n test0
+python main.py -t plot_scheduling_data -s data/s63_results -c config/dataset_config.json -g s63 -n test0
+python main.py -t create_training_dataset -s data/s63_results -c config/dataset_config.json -g s63 -n test0
 ```
 
 NOTE: the argument `-f` will use fast functions in edaf analyzer to speed up the processing. By not using it probably you will get more accurate results but very long processing time.

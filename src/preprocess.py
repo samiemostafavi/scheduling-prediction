@@ -92,216 +92,22 @@ def find_closest_schedule(failed_ul_schedules, ts_value, hapid_value):
     return closest_item, closest_index
 
 
-def find_the_schedule(all_ul_schedules_df, ue_mac_attempt_0):
-    
-    # make pandas df from all_ul_schedules
-    all_ul_schedules_df['ue_scheduled_ts'] = all_ul_schedules_df['ue_scheduled_ts'].astype(float)
-    # find the schedule with ue_scheduled_ts closer than 1ms to the given ts_value
-    closest_schedule = all_ul_schedules_df.loc[
-        (all_ul_schedules_df['sched.cause.hqpid'] == ue_mac_attempt_0['phy.tx.hqpid']) &
-        (all_ul_schedules_df['sched.ue.frametx'] == ue_mac_attempt_0['phy.tx.fm']) &
-        (all_ul_schedules_df['sched.ue.slottx'] == ue_mac_attempt_0['phy.tx.sl']) &
-        ((all_ul_schedules_df['ue_scheduled_ts'] - ue_mac_attempt_0['phy.tx.timestamp']).abs() < 0.001)  # 1ms
-    ]
-
-    if not closest_schedule.empty:
-        closest_item = closest_schedule.iloc[0].to_dict()
-        closest_item_index = closest_schedule.index[0]
-    else:
-        closest_item = None
-        closest_item_index = None
-    
-    return closest_item, closest_item_index
-
-
-def process_failed_rlc_events(all_ul_schedules, failed_ue_rlc_attempts, max_harq_attempts=4):
-    all_ul_schedules_df = pd.DataFrame(all_ul_schedules)
-
-    # the key that connects these events is the hqpid
-    # A Nack and an RLC retransmission are the start
-    # first we iterate over all failed rlc attempts, and find their corresponding mac attempts
-
-    # in the end, we filter out the repeated ones
-    # so create a set of schedule ids
-    unique_schedule_ids = set()
-
-    failed_harq_groups = []
-
-    # ue_rlc_segments_df: ['txpdu_id', 'rlc.txpdu.M1buf', 'rlc.txpdu.R2buf', 'rlc.txpdu.sn', 'rlc.txpdu.srn', 'rlc.txpdu.so', 'rlc.txpdu.tbs', 'rlc.txpdu.timestamp', 'rlc.txpdu.length', 'rlc.txpdu.leno', 'rlc.txpdu.ENTno', 'rlc.txpdu.retx', 'rlc.txpdu.retxc', 'rlc.report.timestamp', 'rlc.report.num', 'rlc.report.ack', 'rlc.report.tpollex', 'mac.sdu.lcid', 'mac.sdu.tbs', 'mac.sdu.frame', 'mac.sdu.slot', 'mac.sdu.timestamp', 'mac.sdu.length', 'mac.sdu.M2buf', 'rlc.resegment.old_leno', 'rlc.resegment.old_so', 'rlc.resegment.other_seg_leno', 'rlc.resegment.other_seg_so', 'rlc.resegment.pdu_header_len', 'rlc.resegment.pdu_len']
-    for ue_rlc_row in failed_ue_rlc_attempts:
-        #ue_mac_attempts_df: ['mac_id', 'phy.tx.timestamp', 'phy.tx.Hbuf', 'phy.tx.rvi', 'phy.tx.fm', 'phy.tx.sl', 'phy.tx.nb_rb', 'phy.tx.nb_sym', 'phy.tx.mod_or', 'phy.tx.len', 'phy.tx.rnti', 'phy.tx.hqpid', 'mac.harq.timestamp', 'mac.harq.hqpid', 'mac.harq.rvi', 'mac.harq.len', 'mac.harq.ndi', 'mac.harq.M3buf']
-        ue_mac_attempt_0 = ue_rlc_row['ue_mac_attempt_0']
-        frame = ue_rlc_row['mac.sdu.frame']
-        slot = ue_rlc_row['mac.sdu.slot']
-        hqpid = ue_mac_attempt_0['mac.harq.hqpid']
-        rvi = ue_mac_attempt_0['phy.tx.real_rvi']
-
-        failed_harq_group = {
-            'schedule_id': None,
-            'frame' : None,
-            'slot' : None,
-            'timestamp' : None,
-            'total_hqrounds' : 0,
-            'hqpid' : hqpid,
-            'rlc_failed' : 1,
-            'related_schedules_list' : []
-        }
-        
-        # find it in all_ul_schedules_df
-        rlc_failed_schedule, rfs_idx = find_the_schedule(all_ul_schedules_df, ue_mac_attempt_0)
-        if rlc_failed_schedule == None:
-            logger.warning(f"No schedule found for failed rlc attempt: {ue_rlc_row}")
-            failed_harq_group['timestamp'] = ue_mac_attempt_0['phy.tx.timestamp']
-            failed_harq_group['frame'] = ue_mac_attempt_0['phy.tx.fm']
-            failed_harq_group['slot'] = ue_mac_attempt_0['phy.tx.sl']
-            failed_harq_groups.append(failed_harq_group)
-            continue
-
-        # gnb_sched_reports_df: ['sched.ue.rnti', 'sched.ue.frame', 'sched.ue.slot', 'sched.ue.frametx', 'sched.ue.slottx', 'sched.ue.tbs', 'sched.ue.mcs', 'sched.ue.timestamp', 'sched.ue.rbs', 'sched.cause.type', 'sched.cause.frame', 'sched.cause.slot', 'sched.cause.diff', 'sched.cause.timestamp', 'sched.cause.buf', 'sched.cause.sched', 'sched.cause.hqround', 'sched.cause.hqpid']
-        related_schedules_list = [rlc_failed_schedule]
-        
-        if pd.isnull(rlc_failed_schedule['sched.cause.hqround']):
-            cur_hqround = 0
-            # it means it is the first attempt and it was failed
-            failed_harq_group['timestamp'] = rlc_failed_schedule['ue_scheduled_ts']
-        else:
-            cur_hqround = rlc_failed_schedule['sched.cause.hqround']
-            # it means it was the middle attempt and it was failed
-            # iterate backwards over failed_ul_schedules from rrfs_idx until we find the attempts with 'sched.cause.hqround'<cur_hqround or pd.isnull('sched.cause.hqround') and the same 'sched.cause.hqpid'
-            for idx in range(rfs_idx-1, -1, -1):
-                prev_schedule = all_ul_schedules[idx]
-                # if it too far back, stop
-                if abs(prev_schedule['ue_scheduled_ts'] - ue_mac_attempt_0['phy.tx.timestamp']) > 0.050: # 50ms
-                    break
-                if pd.isnull(prev_schedule['sched.cause.hqround']) and prev_schedule['sched.cause.hqpid'] == hqpid:
-                    related_schedules_list.append(prev_schedule)
-                    break
-                if prev_schedule['sched.cause.hqpid'] == hqpid and prev_schedule['sched.cause.hqround'] < cur_hqround:
-                    related_schedules_list.append(prev_schedule)
-        
-        # iterate forward over failed_ul_schedules from rrfs_idx until we find the attempts with 'sched.cause.hqround'>cur_hqround and the same 'sched.cause.hqpid'
-        for idx in range(rfs_idx+1, len(all_ul_schedules)):
-            next_schedule = all_ul_schedules[idx]
-            # if it too far, stop
-            if abs(next_schedule['ue_scheduled_ts'] - ue_mac_attempt_0['phy.tx.timestamp']) > 0.050: # 50ms
-                break
-            if next_schedule['sched.cause.hqpid'] == hqpid and next_schedule['sched.cause.hqround'] == (max_harq_attempts-1):
-                related_schedules_list.append(next_schedule)
-                break
-            if next_schedule['sched.cause.hqpid'] == hqpid and next_schedule['sched.cause.hqround'] > cur_hqround:
-                related_schedules_list.append(next_schedule)
-        
-        failed_harq_group['total_hqrounds'] += len(related_schedules_list)
-            
-        # sort the list based on the timestamp
-        related_schedules_list = sorted(related_schedules_list, key=lambda x: x['ue_scheduled_ts'], reverse=False)
-
-        failed_harq_group['timestamp'] = related_schedules_list[0]['ue_scheduled_ts']
-        failed_harq_group['frame'] = related_schedules_list[0]['sched.ue.frametx']
-        failed_harq_group['slot'] = related_schedules_list[0]['sched.ue.slottx']
-        failed_harq_group['schedule_id'] = related_schedules_list[0]['schedule_id']
-        failed_harq_group['related_schedules_list'] = related_schedules_list
-        if failed_harq_group['schedule_id'] not in unique_schedule_ids:
-            failed_harq_groups.append(failed_harq_group)
-            unique_schedule_ids.add(failed_harq_group['schedule_id'])
-
-    return failed_harq_groups
-
-
-def process_successful_retx_schedule_events(all_ul_schedules, successful_retx_schedules):
-
-    all_ul_schedules_df = pd.DataFrame(all_ul_schedules)
-
-    # the key that connects these events is the hqpid
-    # A Nack and an RLC retransmission are the start
-    # first we iterate over all failed rlc attempts, and find their corresponding mac attempts
-
-    # in the end, we filter out the repeated ones
-    # so create a set of schedule ids
-    unique_schedule_ids = set()
-
-    failed_harq_groups = []
-
-    for suc_retx_gnb_schedule in successful_retx_schedules:
-        # gnb_sched_reports_df: ['sched.ue.rnti', 'sched.ue.frame', 'sched.ue.slot', 'sched.ue.frametx', 'sched.ue.slottx', 'sched.ue.tbs', 'sched.ue.mcs', 'sched.ue.timestamp', 'sched.ue.rbs', 'sched.cause.type', 'sched.cause.frame', 'sched.cause.slot', 'sched.cause.diff', 'sched.cause.timestamp', 'sched.cause.buf', 'sched.cause.sched', 'sched.cause.hqround', 'sched.cause.hqpid']
-
-        related_schedules_list = [suc_retx_gnb_schedule]
-        hqpid = suc_retx_gnb_schedule['sched.cause.hqpid']
-        hqround = suc_retx_gnb_schedule['sched.cause.hqround']
-
-        failed_harq_group = {
-            'frame' : None,
-            'slot' : None,
-            'timestamp' : None,
-            'total_hqrounds' : hqround+1,
-            'hqpid' : hqpid,
-            'rlc_failed' : 0,
-            'schedule_id' : None,
-            'related_schedules_list' : []
-        }
-
-        rfs_idx = all_ul_schedules_df.loc[
-            (all_ul_schedules_df['schedule_id'] == suc_retx_gnb_schedule['schedule_id'])
-        ].index[0]
-
-        # it means there is still more failed schedules to go through
-        # iterate backwards over failed_ul_schedules from rrfs_idx until we find the attempts with 'sched.cause.hqround'<cur_hqround or pd.isnull('sched.cause.hqround') and the same 'sched.cause.hqpid'
-        for idx in range(rfs_idx-1, -1, -1):
-            failed_schedule = all_ul_schedules[idx]
-            # if it too far back, stop
-            if abs(failed_schedule['ue_scheduled_ts'] - suc_retx_gnb_schedule['sched.ue.timestamp']) > 0.050: # 50ms
-                break
-            if pd.isnull(failed_schedule['sched.cause.hqround']) and failed_schedule['sched.cause.hqpid'] == hqpid:
-                related_schedules_list.append(failed_schedule)
-                break
-            if failed_schedule['sched.cause.hqpid'] == hqpid and failed_schedule['sched.cause.hqround'] < hqround:
-                related_schedules_list.append(failed_schedule)
-           
-        # sort the list based on the timestamp
-        related_schedules_list = sorted(related_schedules_list, key=lambda x: x['ue_scheduled_ts'], reverse=False)
-
-        failed_harq_group['frame'] = related_schedules_list[0]['sched.ue.frametx']
-        failed_harq_group['slot'] = related_schedules_list[0]['sched.ue.slottx']
-        failed_harq_group['timestamp'] = related_schedules_list[0]['ue_scheduled_ts']
-        failed_harq_group['schedule_id'] = related_schedules_list[0]['schedule_id']
-        failed_harq_group['related_schedules_list'] = related_schedules_list
-
-        if failed_harq_group['schedule_id'] not in unique_schedule_ids:
-            failed_harq_groups.append(failed_harq_group)
-            unique_schedule_ids.add(failed_harq_group['schedule_id'])
-
-    return failed_harq_groups
-
-def filter_successful_retx_schedule(grouped_retx_schedules, grouped_rlc_failed_schedules):
-
-    logger.info(f"Number of successful retx schedules before filtering: {len(grouped_retx_schedules)}")
-
-    results = []
-    for retx_group in grouped_retx_schedules:
-        found_similar = False
-        for rlc_group in grouped_rlc_failed_schedules:
-            if (retx_group['hqpid'] == rlc_group['hqpid'] and
-                    abs(retx_group['timestamp'] - rlc_group['timestamp']) < 0.001): # 1ms
-                logger.info(f"Found similar: {retx_group['frame']} {retx_group['slot']}, {rlc_group['frame']}, {rlc_group['slot']}")
-                found_similar = True
-                break
-
-        if not found_similar:
-            results.append(retx_group)
-
-    logger.info(f"Number of successful retx schedules after filtering: {len(results)}")
-    return results
-
 # here we process two general types of events:
 
 # 1) packet arrival event that includes the following:
-# - MCS index (at the time of packet arrival)
-# - Number of retransmissions (sum of harq retransmissions of all segments)
+# - MCS index (of the first segment)
+# - Number of harq retransmissions (sum of harq retransmissions of all rlc segments)
+# - Number of rlc retransmissions (total number of rlc retransmissions)
 # - Packet size
+# - Number of resource blocks = 0
+# - Number of symbols = 0
 # 2) scheduling events of a packet
 # - MCS index
-# - Number of retransmissions (harq retransmissions)
+# - Number of harq retransmissions
+# - RLC retransmission needed
 # - transport block size
+# - Number of resource blocks
+# - Number of symbols
 
 # the plan is to predict the intensity of sheduling events, given the packet arrival event plus the MCS, number of retransmissions, and its size
 
@@ -434,24 +240,6 @@ def plot_scheduling_data(args):
                 logger.error("Multiple RNTIs in the packet stream, exiting...")
                 return
             stream_rnti = list(packets_rnti_set)[0]
-
-            logger.info(f"Figure out the MCS index of the missing mac attempts")
-            for idx, packet in enumerate(packets):
-                print(f"\rProcessing packet {idx + 1}/{len(packets)} ({(idx + 1) / len(packets) * 100:.2f}%) with packet sn: {packet['sn']}", end="")
-                for rlc_attempt in packet['rlc.attempts']:
-                    for mac_attempt in rlc_attempt['mac.attempts']:
-                        if mac_attempt['mcs'] == None:
-                            ue_mac_attempt = {
-                                'phy.tx.timestamp': mac_attempt['phy.in_t'],
-                                'mac.harq.hqpid': mac_attempt['hqpid'],
-                                'phy.tx.rnti' : mac_attempt['rnti'],
-                                'phy.tx.fm': mac_attempt['frame'],
-                                'phy.tx.sl': mac_attempt['slot']
-                            }
-                            schedule = sched_analyzer.find_gnb_schedule_from_ue_mac_attempt(ue_mac_attempt, scheduling_time_ahead_ms/1000)
-                            mac_attempt['mcs'] = schedule['sched.ue.mcs']
-            print("\n", end="")
-
 
             this_db_events = []
             logger.info(f"Extract events for plotting")
@@ -668,6 +456,8 @@ def create_training_dataset(args):
                     'mcs_index' : packet['rlc.attempts'][0]['mac.attempts'][0]['mcs'],
                     'mac_retx' : sum([len(rlc_attempt['mac.attempts'])-1 for rlc_attempt in packet['rlc.attempts'] if not rlc_attempt['repeated']]),
                     'rlc_failed' : sum([1 for rlc_attempt in packet['rlc.attempts'] if not rlc_attempt['acked']]),
+                    'num_rbs' : 0,
+                    'num_symbols' : 0,
                 }
             )
             for rlc_attempt in packet['rlc.attempts']:
@@ -679,7 +469,9 @@ def create_training_dataset(args):
                         'len' : rlc_attempt['len'],
                         'mcs_index' : rlc_attempt['mac.attempts'][0]['mcs'],
                         'mac_retx' : len(rlc_attempt['mac.attempts'])-1,
-                        'rlc_failed' : not rlc_attempt['acked'],
+                        'rlc_failed' : int(not rlc_attempt['acked']),
+                        'num_rbs' : rlc_attempt['mac.attempts'][0]['rbs'],
+                        'num_symbols' : rlc_attempt['mac.attempts'][0]['symbols'],
                     }
                 )
         print("\n", end="")
@@ -826,6 +618,8 @@ def create_training_dataset_event_window(this_db_events_v2, dim_process, window_
                     'mcs_index' : event['mcs_index'],
                     'mac_retx' : event['mac_retx'],
                     'rlc_failed' : event['rlc_failed'],
+                    'num_rbs' : event['num_rbs'],
+                    'num_symbols' : event['num_symbols'],
                     'time_since_start' : event['time_since_start'],
                     'time_since_last_event' : event['time_since_last_event']
                 }

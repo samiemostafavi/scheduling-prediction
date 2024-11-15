@@ -44,53 +44,36 @@ class TPPRunner():
             )
 
         # needed for transformation of the data
-        if data_config.data_specs.includes_mcs:
-            mean_inter_time, std_inter_time, mean_event_type, std_event_type, mean_mcs, std_mcs, min_dt, max_dt, min_eventtype, max_eventtype, min_mcs, max_mcs = (
-                self._data_loader.train_loader().dataset.get_dt_stats(includes_mcs=data_config.data_specs.includes_mcs)
-            )
-            runner_config.model_config.set("mean_inter_time", mean_inter_time)
-            runner_config.model_config.set("std_inter_time", std_inter_time)
-            runner_config.model_config.set("mean_log_inter_time", np.log(mean_inter_time+self.eps))
-            runner_config.model_config.set("std_log_inter_time", np.log(std_inter_time+self.eps))
-            runner_config.model_config.set("mean_event_type", mean_event_type)
-            runner_config.model_config.set("std_event_type", std_event_type)
-            runner_config.model_config.set("mean_mcs", mean_mcs)
-            runner_config.model_config.set("std_mcs", std_mcs)
-            runner_config.model_config.set("mean_log_event_type", np.log(mean_event_type+self.eps))
-            runner_config.model_config.set("std_log_event_type", np.log(std_event_type+self.eps))
-        elif data_config.data_specs.mcs_events:
-            mean_inter_time, std_inter_time, mean_event_type, std_event_type, min_dt, max_dt, min_eventtype, max_eventtype, mcs_mean_inter_time, mcs_std_inter_time, mcs_mean_event_type, mcs_std_event_type, mcs_min_dt, mcs_max_dt, mcs_min_eventtype, mcs_max_eventtype, = (
-                self._data_loader.train_loader().dataset.get_dt_stats(mcs_events=data_config.data_specs.mcs_events, num_event_types_no_mcs=data_config.data_specs.num_event_types_no_mcs)
-            )
-            runner_config.model_config.set("mean_inter_time", mean_inter_time)
-            runner_config.model_config.set("std_inter_time", std_inter_time)
-            runner_config.model_config.set("mean_log_inter_time", np.log(mean_inter_time+self.eps))
-            runner_config.model_config.set("std_log_inter_time", np.log(std_inter_time+self.eps))
-            runner_config.model_config.set("mean_event_type", mean_event_type)
-            runner_config.model_config.set("std_event_type", std_event_type)
-            runner_config.model_config.set("mean_log_event_type", np.log(mean_event_type+self.eps))
-            runner_config.model_config.set("std_log_event_type", np.log(std_event_type+self.eps))
-            runner_config.model_config.set("mcs_mean_inter_time", mcs_mean_inter_time)
-            runner_config.model_config.set("mcs_std_inter_time", mcs_std_inter_time)
-            runner_config.model_config.set("mcs_mean_log_inter_time", np.log(mcs_mean_inter_time+self.eps))
-            runner_config.model_config.set("mcs_std_log_inter_time", np.log(mcs_std_inter_time+self.eps))
-            runner_config.model_config.set("mcs_mean_event_type", mcs_mean_event_type)
-            runner_config.model_config.set("mcs_std_event_type", mcs_std_event_type)
-            runner_config.model_config.set("mcs_mean_log_event_type", np.log(mcs_mean_event_type+self.eps))
-            runner_config.model_config.set("mcs_std_log_event_type", np.log(mcs_std_event_type+self.eps))
-            runner_config.model_config.set("num_event_types_no_mcs", data_config.data_specs.num_event_types_no_mcs)
-        else:
-            mean_inter_time, std_inter_time, mean_event_type, std_event_type, min_dt, max_dt, min_eventtype, max_eventtype = (
-                self._data_loader.train_loader().dataset.get_dt_stats()
-            )
-            runner_config.model_config.set("mean_inter_time", mean_inter_time)
-            runner_config.model_config.set("std_inter_time", std_inter_time)
-            runner_config.model_config.set("mean_log_inter_time", np.log(mean_inter_time+self.eps))
-            runner_config.model_config.set("std_log_inter_time", np.log(std_inter_time+self.eps))
-            runner_config.model_config.set("mean_event_type", mean_event_type)
-            runner_config.model_config.set("std_event_type", std_event_type)
-            runner_config.model_config.set("mean_log_event_type", np.log(mean_event_type+self.eps))
-            runner_config.model_config.set("std_log_event_type", np.log(std_event_type+self.eps))
+        mean_inter_time, std_inter_time, mean_event_type, std_event_type, min_dt, max_dt, min_eventtype, max_eventtype = (
+            self._data_loader.train_loader().dataset.get_stats(inp_type='time_delta_seqs', packet_or_segment=False, num_event_types=self.runner_config.data_config.data_specs.num_event_types)
+        )
+        runner_config.model_config.set("mean_inter_time", mean_inter_time)
+        runner_config.model_config.set("std_inter_time", std_inter_time)
+        runner_config.model_config.set("mean_log_inter_time", np.log(mean_inter_time+self.eps))
+        runner_config.model_config.set("std_log_inter_time", np.log(std_inter_time+self.eps))
+        runner_config.model_config.set("mean_event_type", mean_event_type)
+        runner_config.model_config.set("std_event_type", std_event_type)
+        runner_config.model_config.set("mean_log_event_type", np.log(mean_event_type+self.eps))
+        runner_config.model_config.set("std_log_event_type", np.log(std_event_type+self.eps))
+
+        mean_rbs, std_rbs, mean_event_type, std_event_type, min_rbs, max_rbs, min_eventtype, max_eventtype = (
+            self._data_loader.train_loader().dataset.get_stats(inp_type='num_rbs_seqs', packet_or_segment=False)
+        )
+        runner_config.model_config.set("mean_rbs", mean_rbs)
+        runner_config.model_config.set("std_rbs", std_rbs)
+        runner_config.model_config.set("mean_log_rbs", np.log(mean_rbs+self.eps))
+        runner_config.model_config.set("std_log_rbs", np.log(std_rbs+self.eps))
+
+        # just for the sake of reporting in logs
+        self._data_loader.train_loader().dataset.get_stats(inp_type='len_seqs', packet_or_segment=False, num_event_types=self.runner_config.data_config.data_specs.num_event_types)
+        self._data_loader.train_loader().dataset.get_stats(inp_type='mcs_seqs', packet_or_segment=False, num_event_types=self.runner_config.data_config.data_specs.num_event_types)
+        self._data_loader.train_loader().dataset.get_stats(inp_type='mac_retx_seqs', packet_or_segment=False, num_event_types=self.runner_config.data_config.data_specs.num_event_types)
+        self._data_loader.train_loader().dataset.get_stats(inp_type='rlc_failed_seqs', packet_or_segment=False, num_event_types=self.runner_config.data_config.data_specs.num_event_types)
+        self._data_loader.train_loader().dataset.get_stats(inp_type='len_seqs', packet_or_segment=True, num_event_types=self.runner_config.data_config.data_specs.num_event_types)
+        self._data_loader.train_loader().dataset.get_stats(inp_type='mcs_seqs', packet_or_segment=True, num_event_types=self.runner_config.data_config.data_specs.num_event_types)
+        self._data_loader.train_loader().dataset.get_stats(inp_type='mac_retx_seqs', packet_or_segment=True, num_event_types=self.runner_config.data_config.data_specs.num_event_types)
+        self._data_loader.train_loader().dataset.get_stats(inp_type='rlc_failed_seqs', packet_or_segment=True, num_event_types=self.runner_config.data_config.data_specs.num_event_types)
+
         self.timer = Timer()
 
         self.metrics_tracker = MetricsTracker()
