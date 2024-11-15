@@ -584,11 +584,12 @@ def create_training_dataset(args):
 
     # select the source configuration
     window_config = config['window_config']
-    if window_config['type'] == 'packet':
-        num_packet_arrivals_in_a_window = window_config['size']
-        dim_process = num_packet_arrivals_in_a_window*2
+    if window_config['type'] == 'event':
+        window_size_events = window_config['size']
+        max_num_packet_types = window_config['max_num_packet_types']
+        dim_process = max_num_packet_types*2
     else:
-        logger.error("Only packet window configuration is supported for now.")
+        logger.error("Only event window configuration is supported for now.")
         return
     dataset_size_max = config['dataset_size_max']
     split_ratios = config['split_ratios']
@@ -653,23 +654,6 @@ def create_training_dataset(args):
             logger.error("Multiple RNTIs in the packet stream, exiting...")
             return
         stream_rnti = list(packets_rnti_set)[0]
-
-        logger.info(f"Figure out the MCS index of the missing mac attempts")
-        for idx, packet in enumerate(packets):
-            print(f"\rProcessing packet {idx + 1}/{len(packets)} ({(idx + 1) / len(packets) * 100:.2f}%) with packet sn: {packet['sn']}", end="")
-            for rlc_attempt in packet['rlc.attempts']:
-                for mac_attempt in rlc_attempt['mac.attempts']:
-                    if mac_attempt['mcs'] == None:
-                        ue_mac_attempt = {
-                            'phy.tx.timestamp': mac_attempt['phy.in_t'],
-                            'mac.harq.hqpid': mac_attempt['hqpid'],
-                            'phy.tx.rnti' : mac_attempt['rnti'],
-                            'phy.tx.fm': mac_attempt['frame'],
-                            'phy.tx.sl': mac_attempt['slot']
-                        }
-                        schedule = sched_analyzer.find_gnb_schedule_from_ue_mac_attempt(ue_mac_attempt, scheduling_time_ahead_ms/1000)
-                        mac_attempt['mcs'] = schedule['sched.ue.mcs']
-        print("\n", end="")
 
         this_db_events_v1 = []
         logger.info(f"Extract events for dataset v1")
@@ -737,7 +721,7 @@ def create_training_dataset(args):
 
 
         logger.info(f"Creating training dataset for this db final")
-        this_db_dataset = create_training_dataset_event_window(this_db_events_v2, dim_process, num_packet_arrivals_in_a_window, config)
+        this_db_dataset = create_training_dataset_event_window(this_db_events_v2, dim_process, window_size_events, max_num_packet_types, config)
 
         # print length of dataset
         logger.info(f"Number of total entries produced by this db dataset: {len(this_db_dataset)}")
@@ -787,49 +771,54 @@ def create_training_dataset(args):
 
     
 
-def create_training_dataset_event_window(this_db_events_v2, dim_process, num_packet_arrivals_in_a_window, config):
+def create_training_dataset_event_window(this_db_events_v2, dim_process, window_size_events, max_num_packet_types, config):
     
     # select the source configuration
     dataset_size_max = config['dataset_size_max']
 
     reached_the_end = False
     dataset = []
-    for idx,_ in enumerate(this_db_events_v2):
-        events_window_v1 = []
+    idx = 0
+    # iterate backwards over the this_db_events_v2 
+    for idx in range(len(this_db_events_v2)-1, -1, -1):
+        # never start (actually end) with packet arrival
+        if this_db_events_v2[idx]['packet_or_segment']:
+            continue
+        events_window_v3 = []
         packet_ids_set = set()
         idy = idx
         while True:
-            if idy >= len(this_db_events_v2):
+            if idy == 0:
                 reached_the_end = True
                 break
-            if this_db_events_v2[idy]['packet_or_segment'] and len(packet_ids_set) >= num_packet_arrivals_in_a_window:
+            if len(events_window_v3) >= window_size_events:
                 break
-            events_window_v1.append(this_db_events_v2[idy])
+            events_window_v3.append(this_db_events_v2[idy])
             packet_ids_set.add(this_db_events_v2[idy]['packet_id'])
-            idy = idy+1
-
+            idy = idy-1
         if reached_the_end:
             break
 
-        assert len(packet_ids_set) == num_packet_arrivals_in_a_window
+        # sort the events_window_v3 based on timestamp
+        events_window_v3 = sorted(events_window_v3, key=lambda x: x['timestamp'], reverse=False)
 
         # make a mapping for packet_ids, maximum packet_id becomes 0, and the rest are shifted by 1
         packet_ids_list = list(packet_ids_set)
         sorted_packet_ids_list = sorted(packet_ids_list, reverse=True)
         event_id_packet_id_mapping = {}
         for pos, packet_id in enumerate(sorted_packet_ids_list):
-            event_id_packet_id_mapping[packet_id] = pos
+            event_id_packet_id_mapping[packet_id] = pos % max_num_packet_types
 
-        events_window_v2 = []
-        for pos, event in enumerate(events_window_v1):
+        events_window_v4 = []
+        for pos, event in enumerate(events_window_v3):
             if event['packet_or_segment']:
-                type_event = event_id_packet_id_mapping[event['packet_id']]+num_packet_arrivals_in_a_window
+                type_event = event_id_packet_id_mapping[event['packet_id']]+max_num_packet_types
             else:
                 type_event = event_id_packet_id_mapping[event['packet_id']]
 
             # add the event to the dataset
             # remove 'packet_or_segment' 'packet_id' and 'timestamp' fields
-            events_window_v2.append(
+            events_window_v4.append(
                 {
                     'idx_event' : pos,
                     'type_event': type_event,
@@ -841,8 +830,9 @@ def create_training_dataset_event_window(this_db_events_v2, dim_process, num_pac
                     'time_since_last_event' : event['time_since_last_event']
                 }
             )
+        
 
-        dataset.append(events_window_v2)
+        dataset.append(events_window_v4)
         if len(dataset) > dataset_size_max:
             break
 
