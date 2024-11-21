@@ -1,5 +1,5 @@
 import argparse
-from src.preprocess import preprocess_edaf, plot_scheduling_data, create_training_dataset
+from src.preprocess import preprocess_edaf, plot_scheduling_data, create_training_dataset, plot_scheduling_interarrival_data
 from src.train import train_model
 from src.predict import generate_predictions, plot_predictions
 from src.evaluate import evaluate_model
@@ -14,6 +14,7 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--task", choices=[
             "preprocess", 
             "plot_scheduling_data", 
+            "plot_scheduling_interarrival_data",
             "create_training_dataset",
             "train_model",
             "generate_predictions",
@@ -33,12 +34,15 @@ if __name__ == "__main__":
     parser.add_argument("-g", "--configname", help="Specify the configuration name in the configuration file")
     parser.add_argument("-n", "--name", help="Specify the name of the dataset")
     parser.add_argument("-i", "--id", help="Specify the training id")
+    parser.add_argument("-m", "--segment", help="Specify the segment number to plot")
     args = parser.parse_args()
 
     if args.task == "preprocess":
         preprocess_edaf(args)
     elif args.task == "plot_scheduling_data":
         plot_scheduling_data(args)
+    elif args.task == "plot_scheduling_interarrival_data":
+        plot_scheduling_interarrival_data(args)
     elif args.task == "create_training_dataset":
         create_training_dataset(args)
     elif args.task == "train_model":

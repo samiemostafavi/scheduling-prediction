@@ -128,6 +128,7 @@ Now you can create a training dataset by executing the script:
 ```shell
 python main.py -t plot_scheduling_data -f -s data/s63_results -c config/dataset_config.json -g s63 -n test0
 python main.py -t plot_scheduling_data -s data/s63_results -c config/dataset_config.json -g s63 -n test0
+python main.py -t plot_scheduling_interarrival_data -s data/s63_results -c config/dataset_config.json -g s63 -n test0
 python main.py -t create_training_dataset -s data/s63_results -c config/dataset_config.json -g s63 -n test0
 ```
 

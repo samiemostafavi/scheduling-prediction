@@ -57,7 +57,7 @@ class TPPRunner():
         runner_config.model_config.set("std_log_event_type", np.log(std_event_type+self.eps))
 
         mean_rbs, std_rbs, mean_event_type, std_event_type, min_rbs, max_rbs, min_eventtype, max_eventtype = (
-            self._data_loader.train_loader().dataset.get_stats(inp_type='num_rbs_seqs', packet_or_segment=False)
+            self._data_loader.train_loader().dataset.get_stats(inp_type='num_rbs_seqs', packet_or_segment=False, num_event_types=self.runner_config.data_config.data_specs.num_event_types)
         )
         runner_config.model_config.set("mean_rbs", mean_rbs)
         runner_config.model_config.set("std_rbs", std_rbs)
@@ -286,7 +286,8 @@ class TPPRunner():
 
             # evaluate model
             if i % self.runner_config.trainer_config.valid_freq == 0:
-                valid_metrics = self.run_one_epoch(valid_loader, RunnerPhase.VALIDATE)
+                #valid_metrics = self.run_one_epoch(valid_loader, RunnerPhase.VALIDATE)
+                valid_metrics = self.run_one_epoch(test_loader, RunnerPhase.VALIDATE)
 
                 self.model_wrapper.write_summary(i, valid_metrics, RunnerPhase.VALIDATE)
 
@@ -373,6 +374,8 @@ class TPPRunner():
             a dict of metrics
         """
         total_loss = 0
+        total_m_dtime_loss = 0
+        total_m_num_rbs_loss = 0
         dtime_loss = 0
         event_loss = 0
         total_num_event = 0
@@ -383,18 +386,22 @@ class TPPRunner():
         metrics_dict = OrderedDict()
         if phase in [RunnerPhase.TRAIN, RunnerPhase.VALIDATE]:
             for batch in data_loader:
-                batch_loss, batch_num_event, batch_pred, batch_label, batch_mask = \
+                batch_loss, batch_num_event, batch_pred, batch_label, batch_mask, m_dtime_loss, m_num_rbs_loss = \
                     self.model_wrapper.run_batch(batch, phase=phase)
 
                 total_loss += batch_loss
+                total_m_dtime_loss += m_dtime_loss
+                total_m_num_rbs_loss += m_num_rbs_loss
                 total_num_event += batch_num_event
                 epoch_pred.append(batch_pred)
                 epoch_label.append(batch_label)
                 epoch_mask.append(batch_mask)
 
             avg_loss = total_loss / total_num_event
+            avg_m_dtime_loss = total_m_dtime_loss / total_num_event
+            avg_m_num_rbs_loss = total_m_num_rbs_loss / total_num_event
 
-            metrics_dict.update({'loglike': -avg_loss, 'num_events': total_num_event})
+            metrics_dict.update({'loglike': -avg_loss, 'num_events': total_num_event, 'dtime_loglike': -avg_m_dtime_loss, 'num_rbs_loglike': -avg_m_num_rbs_loss})
 
         else:
             for batch in data_loader:
